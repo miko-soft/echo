@@ -1,0 +1,26 @@
+{
+  "name": "@mikosoft/echo",
+  "version": "1.0.0",
+  "title": "Echo",
+  "description": "Output messages to the console while simultaneously dispatching them through an event emitter.",
+  "keywords": [
+    "echo",
+    "console",
+    "terminal",
+    "event emitter"
+  ],
+  "author": "Mikosoft",
+  "license": "MIT",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:miko-soft/echo.git"
+  },
+  "dependencies": {
+    "chalk": "^4.1.0",
+    "moment": "^2.29.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
