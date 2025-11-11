@@ -14,9 +14,10 @@ const moment = require('moment');
 
 class Echo {
 
-  constructor(short = true, delay = 100, eventEmitter) {
+  constructor(short = true, delay = 100, eventEmitter, answerTimeout) {
     this.short = short; // short console log -> string message instead of whole object in __console_log() method
     this.delay = delay; // delay between two consecutive echoes
+    this.answerTimeout = answerTimeout || 30000; // default timeout for question() method
     this.eventEmitter = eventEmitter; // event emitter - https://nodejs.org/api/events.html
   }
 
@@ -114,6 +115,51 @@ class Echo {
   }
 
 
+  /**
+   * Send question and wait for answer from event emitter listener.
+   * Usage:
+   * // ask question and receive answer in answerTimeout ms
+   * const echoAnswer = await echo.question('Are you sure you want to continue? (yes/no)');
+   * // send answer
+   * eventEmitter.emit('echo-answer', 'Are you sure you want to continue? (yes/no)', 'yes');
+   *
+   * @param {string} question - question string
+   * @return {Promise<any>} - answer from listener
+   */
+  async question(question) {
+    const msg = question;
+    const time = moment().toISOString();
+    const echoMsg = { msg, method: 'question', time };
+    this._log_console(echoMsg);
+    this._log_event(echoMsg);
+
+    return new Promise((resolve, reject) => {
+      let isAnswered = false;
+
+      // listener for the answer
+      const answerListener = async (questionReceived, answer = '') => {
+        if (questionReceived === question) {
+          isAnswered = true;
+          this.eventEmitter.removeListener('echo-answer', answerListener);
+          resolve(answer);
+        }
+      };
+
+      this.eventEmitter.on('echo-answer', answerListener);
+
+      // timeout for the answer
+      setTimeout(() => {
+        if (!isAnswered) {
+          this.eventEmitter.removeListener('echo-answer', answerListener);
+          const err = new Error(`No answer received for question "${question}" within ${this.answerTimeout} ms`);
+          this.error(err); // log the timeout error
+          reject(err);
+        }
+      }, this.answerTimeout);
+    });
+  }
+
+
 
   /******** PRIVATE METHODS  *******/
   /**
@@ -136,6 +182,8 @@ class Echo {
         console.log(chalk.blueBright(`(${time})`, JSON.stringify(echoMsg.msg, null, 2))); // print stringified object
       } else if (!!echoMsg && echoMsg.method === 'image') { // print base64 image
         console.log(chalk.gray(`(${time})`, echoMsg.msg));
+      } else if (!!echoMsg && echoMsg.method === 'question') { // print question and wait for answer
+        console.log(chalk.green(`(${time})`, echoMsg.msg));
       }
     } else {
       /* LONG PRINT */
@@ -151,6 +199,8 @@ class Echo {
         console.log(chalk.blueBright(echoMsg2)); // print object
       } else if (!!echoMsg && echoMsg.method === 'image') {
         console.log(chalk.gray(echoMsg2)); // print base64 image
+      } else if (!!echoMsg && echoMsg.method === 'question') {
+        console.log(chalk.green(echoMsg2)); // print question and wait for answer
       }
     }
   }
