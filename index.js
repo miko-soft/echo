@@ -152,7 +152,6 @@ class Echo {
         if (!isAnswered) {
           this.eventEmitter.removeListener('echo-answer', answerListener);
           const err = new Error(`No answer received for question "${question}" within ${this.answerTimeout} ms`);
-          this.error(err); // log the timeout error
           reject(err);
         }
       }, this.answerTimeout);
