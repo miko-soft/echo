@@ -126,23 +126,27 @@ class Echo {
    * // send answer
    * eventEmitter.emit('echo-answer', 'Are you sure you want to continue? (yes/no)', 'yes');
    *
-   * @param {string} question - question string
+   * @param {string} questionMsg - question string message
    * @return {Promise<any>} - answer from listener
    */
-  async question(question) {
-    const msg = question;
+  async question(questionMsg) {
+    const msg = questionMsg;
     const time = moment().toISOString();
     const echoMsg = { who: this.who, msg, method: 'question', time };
     this._log_console(echoMsg);
     this._log_event(echoMsg);
 
-    /* wait for answer */
     return new Promise((resolve, reject) => {
       let isAnswered = false;
 
-      // listener for the answer
-      const answerListener = async (questionReceived, answer = '') => {
-        if (questionReceived === question) {
+      /**
+       * @param {string} incomingWho - who the answer is for
+       * @param {string} incomingQuestion - the original question being answered
+       * @param {any} answer - the actual response
+       */
+      const answerListener = (incomingWho, incomingQuestion, answer) => {
+        // Validate that this answer belongs to this specific user AND this specific question
+        if (incomingWho === this.who && incomingQuestion === questionMsg) {
           isAnswered = true;
           this.eventEmitter.removeListener('echo-answer', answerListener);
           resolve(answer);
@@ -151,13 +155,11 @@ class Echo {
 
       this.eventEmitter.on('echo-answer', answerListener);
 
-      // timeout for the answer
       setTimeout(() => {
         if (!isAnswered) {
           this.eventEmitter.removeListener('echo-answer', answerListener);
-          const questionSantiized = String(question).replace(/<\/?[^>]+(>|$)/g, '').trim(); // strip HTML tags from question before building the error message
-          const err = new Error(`No answer received for question "${questionSantiized}" within ${this.answerTimeout} ms`);
-          reject(err);
+          const sanitized = String(questionMsg).replace(/<\/?[^>]+(>|$)/g, '').trim();
+          reject(new Error(`No answer for '${sanitized}' within ${this.answerTimeout}ms`));
         }
       }, this.answerTimeout);
     });
