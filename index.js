@@ -2,6 +2,7 @@
  * DEX8 library for sending messages, objects, errors ... to console and/or event emitter.
  * Echo message format:
  * echoMsg::{
+ *  who: string, // optional, who is sending the message, distinguish multiple users using the same event emitter
  *  msg: string|object,
  *  method: 'log'|'objekt'|'error'|'image',
  *  time: string
@@ -9,16 +10,18 @@
  */
 const chalk = require('chalk');
 const moment = require('moment');
+const { off } = require('node:cluster');
 
 
 
 class Echo {
 
-  constructor(short = true, delay = 100, eventEmitter, answerTimeout) {
+  constructor(short = true, delay = 100, eventEmitter, answerTimeout, who) {
     this.short = short; // short console log -> string message instead of whole object in __console_log() method
     this.delay = delay; // delay between two consecutive echoes
-    this.answerTimeout = answerTimeout || 30000; // default timeout for question() method
     this.eventEmitter = eventEmitter; // event emitter - https://nodejs.org/api/events.html
+    this.answerTimeout = answerTimeout || 30000; // default timeout for question() method
+    this.who = who || ''; // who is sending the message, for example user_id. The mostly used when multiple users are using the same (global) event emitter.
   }
 
 
@@ -32,7 +35,7 @@ class Echo {
     args = args.map(arg => this._toString(arg));
     const msg = args.join(' '); // join with space: echo.log('a', 'b') => args::['a', 'b'] => msg::'a b'
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'log', time };
+    const echoMsg = { who: this.who, msg, method: 'log', time };
 
     this._log_console(echoMsg);
     this._log_event(echoMsg);
@@ -50,7 +53,7 @@ class Echo {
     args = args.map(arg => this._toString(arg));
     const msg = args.join(' '); // join with space: echo.log('a', 'b') => args::['a', 'b'] => msg::'a b'
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'warn', time };
+    const echoMsg = { who: this.who, msg, method: 'warn', time };
 
     this._log_console(echoMsg);
     this._log_event(echoMsg);
@@ -71,7 +74,7 @@ class Echo {
       stack: err.stack
     };
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'error', time };
+    const echoMsg = { who: this.who, msg, method: 'error', time };
 
     this._log_console(echoMsg);
     this._log_event(echoMsg);
@@ -89,7 +92,7 @@ class Echo {
   async objekt(obj) {
     const msg = obj;
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'objekt', time };
+    const echoMsg = { who: this.who, msg, method: 'objekt', time };
 
     this._log_console(echoMsg);
     this._log_event(echoMsg);
@@ -107,7 +110,7 @@ class Echo {
   async image(img_b64) {
     const msg = img_b64;
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'image', time };
+    const echoMsg = { who: this.who, msg, method: 'image', time };
 
     this._log_console(echoMsg);
     this._log_event(echoMsg);
@@ -129,10 +132,11 @@ class Echo {
   async question(question) {
     const msg = question;
     const time = moment().toISOString();
-    const echoMsg = { msg, method: 'question', time };
+    const echoMsg = { who: this.who, msg, method: 'question', time };
     this._log_console(echoMsg);
     this._log_event(echoMsg);
 
+    /* wait for answer */
     return new Promise((resolve, reject) => {
       let isAnswered = false;
 
@@ -151,7 +155,8 @@ class Echo {
       setTimeout(() => {
         if (!isAnswered) {
           this.eventEmitter.removeListener('echo-answer', answerListener);
-          const err = new Error(`No answer received for question "${question}" within ${this.answerTimeout} ms`);
+          const questionSantiized = String(question).replace(/<\/?[^>]+(>|$)/g, '').trim(); // strip HTML tags from question before building the error message
+          const err = new Error(`No answer received for question "${questionSantiized}" within ${this.answerTimeout} ms`);
           reject(err);
         }
       }, this.answerTimeout);
