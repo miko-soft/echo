@@ -1,6 +1,6 @@
 {
   "name": "@mikosoft/echo",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "title": "Echo",
   "description": "Output messages to the console while simultaneously dispatching them through an event emitter.",
   "keywords": [
