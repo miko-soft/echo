@@ -1,151 +1,88 @@
-/**
- * DEX8 library for sending messages, objects, errors ... to console and/or event emitter.
- * Echo message format:
- * echoMsg::{
- *  who: string, // optional, who is sending the message, distinguish multiple users using the same event emitter
- *  msg: string|object,
- *  method: 'log'|'objekt'|'error'|'image',
- *  time: string
- * }
- */
 const chalk = require('chalk');
 const moment = require('moment');
-const { off } = require('node:cluster');
 
-
-
+/**
+ * DEX8 Echo utility
+ * -----------------
+ * Unified logger for console output and event emitters.
+ * Supports logs, warnings, errors, objects, images, and questions.
+ *
+ * Echo object format:
+ * {
+ *   who: string,                // optional sender identifier
+ *   msg: string | object,       // payload
+ *   method: 'log' | 'objekt' | 'error' | 'image' | 'warn' | 'question',
+ *   time: ISO string
+ * }
+ */
 class Echo {
 
+  /**
+   * @param {boolean} short - Print compact console output
+   * @param {number} delay - Delay between consecutive echoes (ms)
+   * @param {EventEmitter} eventEmitter - Optional Node.js event emitter
+   * @param {number} answerTimeout - Question timeout in ms
+   * @param {string} who - Sender identifier (e.g. user ID)
+   */
   constructor(short = true, delay = 100, eventEmitter, answerTimeout, who) {
-    this.short = short; // short console log -> string message instead of whole object in __console_log() method
-    this.delay = delay; // delay between two consecutive echoes
-    this.eventEmitter = eventEmitter; // event emitter - https://nodejs.org/api/events.html
-    this.answerTimeout = answerTimeout || 30000; // default timeout for question() method
-    this.who = who || ''; // who is sending the message, for example user_id. The mostly used when multiple users are using the same (global) event emitter.
+    this.short = short;                 // short = message-only console output
+    this.delay = delay;                 // delay between non-question messages
+    this.eventEmitter = eventEmitter;   // external event emitter
+    this.answerTimeout = answerTimeout || 30000;
+    this.who = who || '';
+    this.allEchoes = [];                // history of all echoes
   }
 
-
   /**
-   * Send comma separated strings to console log and/or event emitter.
-   * Use multiple parameters like in console.log, for example: await echo.log('one', 'two', 12, {a: 88})
-   * @param {any[]} args - arguments separated by comma
-   * @return {void}
+   * Standard console log (like console.log).
    */
   async log(...args) {
-    args = args.map(arg => this._toString(arg));
-    const msg = args.join(' '); // join with space: echo.log('a', 'b') => args::['a', 'b'] => msg::'a b'
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'log', time };
-
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
-    await new Promise(r => setTimeout(r, this.delay)); // delay many consecutive echoes
+    const msg = args.map(arg => this._toString(arg)).join(' ');
+    await this._process('log', msg);
   }
 
-
   /**
-   * Send comma separated warnings to console log and/or event emitter.
-   * Use multiple parameters like in console.log, for example: await echo.warn('one', 'two', 12, {a: 88})
-   * @param {any[]} args - arguments separated by comma
-   * @return {void}
+   * Warning message.
    */
   async warn(...args) {
-    args = args.map(arg => this._toString(arg));
-    const msg = args.join(' '); // join with space: echo.log('a', 'b') => args::['a', 'b'] => msg::'a b'
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'warn', time };
-
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
-    await new Promise(r => setTimeout(r, this.delay)); // delay many consecutive echoes
+    const msg = args.map(arg => this._toString(arg)).join(' ');
+    await this._process('warn', msg);
   }
 
-
   /**
-   * Send error to console log and/or event emitter.
-   * Usage: await echo.error(new Error('Scraper error'))
-   * @param {Error|string} err - error object or just error message
-   * @return {void}
+   * Error logger.
+   * Accepts Error object or string.
    */
   async error(err) {
-    if (typeof err === 'string') { err = new Error(err); }
-    const msg = {
-      message: err.message,
-      stack: err.stack
-    };
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'error', time };
-
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
-    await new Promise(r => setTimeout(r, this.delay)); // delay many consecutive echoes
+    const errorObj = typeof err === 'string' ? new Error(err) : err;
+    const msg = { message: errorObj.message, stack: errorObj.stack };
+    await this._process('error', msg);
   }
 
-
-
   /**
-   * Convert object to nice fomatted string and send it to console log and/or event emitter.
-   * Usage: await echo.objekt({a:'str', b:55})
-   * @param {object} obj - object
-   * @return {void}
+   * Pretty-print object output.
    */
   async objekt(obj) {
-    const msg = obj;
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'objekt', time };
-
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
-    await new Promise(r => setTimeout(r, this.delay)); // delay many consecutive echoes
+    await this._process('objekt', obj);
   }
 
-
-
   /**
-   * Send image in the base64 format to console log and/or event emitter.
-   * Usage: await  echo.image('v1w4fnDx9N5fD4t2ft93Y/88IaZLbaPB8+3O1ef+/+jfXqzzf...');
-   * @param {string} img_b64 - image in the base64 (string) format
-   * @return {void}
+   * Base64 image passthrough (no rendering).
    */
   async image(img_b64) {
-    const msg = img_b64;
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'image', time };
-
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
-    await new Promise(r => setTimeout(r, this.delay)); // delay many consecutive echoes
+    await this._process('image', img_b64);
   }
 
-
   /**
-   * Send question and wait for answer from event emitter listener.
-   * Usage:
-   * // ask question and receive answer in answerTimeout ms
-   * const echoAnswer = await echo.question('Are you sure you want to continue? (yes/no)');
-   * // send answer
-   * eventEmitter.emit('echo-answer', 'Are you sure you want to continue? (yes/no)', 'yes');
-   *
-   * @param {string} questionMsg - question string message
-   * @return {Promise<any>} - answer from listener
+   * Ask a question and wait for an answer via event emitter.
    */
   async question(questionMsg) {
-    const msg = questionMsg;
-    const time = moment().toISOString();
-    const echoMsg = { who: this.who, msg, method: 'question', time };
-    this._log_console(echoMsg);
-    this._log_event(echoMsg);
+    await this._process('question', questionMsg);
 
     return new Promise((resolve, reject) => {
       let isAnswered = false;
 
-      /**
-       * @param {string} incomingWho - who the answer is for
-       * @param {string} incomingQuestion - the original question being answered
-       * @param {any} answer - the actual response
-       */
       const answerListener = (incomingWho, incomingQuestion, answer) => {
-        // Validate that this answer belongs to this specific user AND this specific question
         if (incomingWho === this.who && incomingQuestion === questionMsg) {
           isAnswered = true;
           this.eventEmitter.removeListener('echo-answer', answerListener);
@@ -158,7 +95,9 @@ class Echo {
       setTimeout(() => {
         if (!isAnswered) {
           this.eventEmitter.removeListener('echo-answer', answerListener);
-          const sanitized = String(questionMsg).replace(/<\/?[^>]+(>|$)/g, '').trim();
+          const sanitized = String(questionMsg)
+            .replace(/<\/?[^>]+(>|$)/g, '')
+            .trim();
           reject(new Error(`No answer for '${sanitized}' within ${this.answerTimeout}ms`));
         }
       }, this.answerTimeout);
@@ -167,84 +106,91 @@ class Echo {
 
 
 
-  /******** PRIVATE METHODS  *******/
+  /******** PRIVATE METHODS ********/
+
   /**
-   * Message to console.
-   * @param {object} echoMsg - {msg, method, time}
-   * @returns {void}
+   * Central echo handler.
+   * Creates echo object, stores it, logs it, and emits it.
+   * @private
    */
-  _log_console(echoMsg) {
+  async _process(method, msg) {
+    const echoObj = {
+      who: this.who,
+      msg,
+      method,
+      time: moment().toISOString()
+    };
+
+    this.allEchoes.push(echoObj);
+    this._log_console(echoObj);
+    this._log_event(echoObj);
+
+    // Avoid flooding logs with rapid messages
+    if (method !== 'question') {
+      await new Promise(r => setTimeout(r, this.delay));
+    }
+
+    return echoObj;
+  }
+
+  /**
+   * Output formatted message to console.
+   */
+  _log_console(echoObj) {
+    const colors = {
+      log: chalk.greenBright,
+      warn: chalk.yellow,
+      error: chalk.redBright,
+      objekt: chalk.blueBright,
+      image: chalk.gray,
+      question: chalk.green
+    };
+
+    const color = colors[echoObj.method] || chalk.white;
+
     if (this.short) {
-      /* SHORT PRINT */
-      const time = moment(echoMsg.time).format('DD.MMM.YYYY HH:mm:ss.SSS');
-      if (!!echoMsg && echoMsg.method === 'log') {
-        if (echoMsg.msg === '') { console.log(); return; }
-        console.log(chalk.greenBright(`(${time})`, echoMsg.msg)); // print string
-      } else if (!!echoMsg && echoMsg.method === 'warn') {
-        console.log(chalk.yellow(`(${time})`, echoMsg.msg)); // print warning string
-      } else if (!!echoMsg && echoMsg.method === 'error') { // print error
-        console.log(chalk.redBright(`(${time})`, echoMsg.msg.message));
-      } else if (!!echoMsg && echoMsg.method === 'objekt') {
-        console.log(chalk.blueBright(`(${time})`, JSON.stringify(echoMsg.msg, null, 2))); // print stringified object
-      } else if (!!echoMsg && echoMsg.method === 'image') { // print base64 image
-        console.log(chalk.gray(`(${time})`, echoMsg.msg));
-      } else if (!!echoMsg && echoMsg.method === 'question') { // print question and wait for answer
-        console.log(chalk.green(`(${time})`, echoMsg.msg));
+      const who = echoObj.who ? `[${echoObj.who}]` : '[unknown]';
+      const timeStr = moment(echoObj.time).format('DD.MMM.YYYY HH:mm:ss.SSS');
+      let output = echoObj.msg;
+
+      if (echoObj.method === 'objekt') output = JSON.stringify(echoObj.msg, null, 2);
+      if (echoObj.method === 'error') output = echoObj.msg.message;
+      if (output === '' && echoObj.method === 'log') {
+        console.log();
+        return;
       }
+
+      console.log(color(who, `(${timeStr})`, output));
     } else {
-      /* LONG PRINT */
-      const echoMsg2 = JSON.stringify(echoMsg, null, 2);
-      if (!!echoMsg && echoMsg.method === 'log') {
-        if (echoMsg.msg === '') { console.log(); return; }
-        console.log(chalk.greenBright(echoMsg2)); // print string
-      } else if (!!echoMsg && echoMsg.method === 'warn') {
-        console.log(chalk.yellow(echoMsg2)); // print warning string
-      } else if (!!echoMsg && echoMsg.method === 'error') {
-        console.log(chalk.redBright(echoMsg2)); // print error
-      } else if (!!echoMsg && echoMsg.method === 'objekt') {
-        console.log(chalk.blueBright(echoMsg2)); // print object
-      } else if (!!echoMsg && echoMsg.method === 'image') {
-        console.log(chalk.gray(echoMsg2)); // print base64 image
-      } else if (!!echoMsg && echoMsg.method === 'question') {
-        console.log(chalk.green(echoMsg2)); // print question and wait for answer
-      }
+      console.log(color(JSON.stringify(echoObj, null, 2)));
     }
   }
 
-
   /**
-   * Message to event emitter.
-   * @param {object} echoMsg - {method, msg, time}
-   * @returns {void}
+   * Emit echo object through event emitter.
    */
-  _log_event(echoMsg) {
-    if (this.eventEmitter) { this.eventEmitter.emit('echo-event', echoMsg); }
+  _log_event(echoObj) {
+    if (this.eventEmitter) {
+      this.eventEmitter.emit('echo-event', echoObj);
+    }
   }
 
-
   /**
-   * Correct input value to string.
-   * @param {any} arg - input value
-   * @returns {string}
+   * Safely convert any value to string.
    */
   _toString(arg) {
     if (typeof arg === 'object' || typeof arg === 'boolean') {
       try {
-        arg = JSON.stringify(arg, null, 0);
+        return JSON.stringify(arg, null, 0);
       } catch (err) {
-        console.log(err);
+        return String(err);
       }
-    } else if (typeof arg === 'number') {
-      arg = arg.toString();
     }
-
-    return arg;
+    return String(arg);
   }
 
-
-
-
 }
+
 
 
 module.exports = Echo;

@@ -1,164 +1,187 @@
 # @mikosoft/echo
-> 📢 A **Node.js logging library** that prints richly formatted, time-stamped messages to the **console** and simultaneously broadcasts them via an **Event Emitter**.
 
-This dual-logging approach makes it ideal for applications that need both standard console output and an external stream of log events for monitoring or IPC (Inter-Process Communication).
+> 📢 A lightweight **Node.js logging utility** for console output **and** event-based messaging.
 
-The standard message object emitted on the event emitter has the format:
-```javascript
-{
-  msg: string|object,
-  method: 'log'|'warn'|'error'|'objekt'|'image'|'question',
-  time: string // ISO 8601 timestamp, e.g., '2025-11-11T09:26:01.000Z'
-}
-````
+`@mikosoft/echo` prints nicely formatted, time-stamped logs to the console and can **emit the same messages through a Node.js `EventEmitter`**.  
+It also keeps an **in-memory history of all logs** via `allEchoes`.
 
------
+---
 
-## 💾 Installation
+## ✨ Features
+
+- Colored console logs (log, warn, error, object, question)
+- Optional EventEmitter integration
+- Async-safe logging with configurable delay
+- Interactive `question()` / `answer` flow
+- Automatic log history (`allEchoes`)
+- Zero dependencies beyond `chalk` and `moment`
+
+---
+
+## 📦 Installation
 
 ```bash
-$ npm install --save @mikosoft/echo
+npm install --save @mikosoft/echo
+
 ```
 
------
+## 📘 Echo message format
 
-## 💡 Example
+Every log produces a standardized object:
 
-This example demonstrates how to set up the `Echo` class with an `EventEmitter` listener and how to use the basic logging and the interactive `question` method.
+```javascript
+{
+  who: string,
+  msg: string | object,
+  method: 'log' | 'warn' | 'error' | 'objekt' | 'image' | 'question',
+  time: string // ISO 8601 timestamp
+}
 
-```js
-/*** NodeJS script ***/
+```
+
+## 💡 Basic example
+
+```javascript
+const Echo = require('@mikosoft/echo');
+
+(async () => {
+  const echo = new Echo(true);
+
+  await echo.log('App started');
+  await echo.warn('Low memory');
+  await echo.objekt({ service: 'DEX8', status: 'running' });
+  await echo.error(new Error('Unexpected failure'));
+
+  console.log('\nALL ECHOES:\n', echo.allEchoes);
+})();
+
+```
+
+### allEchoes
+
+`echo.allEchoes` stores every emitted message, in order.
+
+Useful for debugging, audits, exporting logs, and testing.
+
+## 🔁 EventEmitter example (with questions)
+
+```javascript
 const { EventEmitter } = require('events');
 const Echo = require('@mikosoft/echo');
 
-// 1. Setup the Event Emitter
-const eventEmitter = new EventEmitter();
+const emitter = new EventEmitter();
+const WHO = 'user1';
 
-// Listen for all emitted messages
-eventEmitter.on('echo-event', echoMsg => {
-  console.log('EVT::', echoMsg.method.toUpperCase(), '->', echoMsg.msg);
+const echo = new Echo(true, 10, emitter, 5000, WHO);
+
+// listen to all echo events
+emitter.on('echo-event', e => {
+  console.log('EVT::', e.method, e.msg);
 });
 
-// A function to answer questions
-const answerer = async () => {
-    // Wait a moment before answering
-    await new Promise(r => setTimeout(r, 500)); 
-    
-    // Simulate receiving a user's answer ('yes')
-    eventEmitter.emit('echo-answer', 'Are you sure you want to continue? (yes/no)', 'yes');
-};
+// answer the question
+setTimeout(() => {
+  emitter.emit('echo-answer', WHO, 'Continue? (yes/no)', 'yes');
+}, 1000);
 
-const f1 = async () => {
-  // Pass the EventEmitter and set a 10ms delay between logs
-  const echo = new Echo(true, 10, eventEmitter, 5000); // 5s timeout for questions
+(async () => {
+  const answer = await echo.question('Continue? (yes/no)');
+  await echo.log('Answer received:', answer);
+})();
 
-  // Basic logging
-  await echo.log('Hello, Echo!', 'This is a test with number:', 123, { a: 22 }, true);
-  await echo.warn('Caution:', 'The following object might be large.');
-  await echo.objekt({ name: 'DEX8', version: 1.0, short: true, settings: { delay: 10 } });
-
-  // Error logging
-  await echo.error(new Error('A critical internal error occurred!'));
-
-  // --- Interactive Question ---
-  // Start the answering process in the background
-  answerer(); 
-  
-  try {
-    const answer = await echo.question('Are you sure you want to continue? (yes/no)');
-    await echo.log('✅ Received answer:', answer);
-  } catch (err) {
-    await echo.error(`❌ Question timed out: ${err.message}`);
-  }
-};
-
-f1().catch(console.error);
 ```
 
------
-
-## ⚙️ API Reference
-
-### `constructor(short = true, delay = 100, eventEmitter, answerTimeout = 30000)`
-
-Initializes the Echo instance with configuration parameters.
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| **`short`** | `boolean` | `true` | If `true`, prints a **brief, formatted message** to the console. If `false`, prints the **full `echoMsg` object** (prettified JSON) to the console. |
-| **`delay`** | `number` | `100` | The delay in milliseconds to pause between two consecutive async `echo` calls. Useful for preventing log overload in tight loops. |
-| **`eventEmitter`** | `EventEmitter` | `undefined` | A Node.js `EventEmitter` instance used to broadcast logs via the `'echo-event'` and receive answers via the `'echo-answer'` events. |
-| **`answerTimeout`** | `number` | `30000` | The timeout in milliseconds for the `question()` method to wait for a response before throwing an error. |
-
------
-
-### Logging Methods
-
-These methods are all `async` and introduce the configured `delay` after execution.
-
-#### `async log(...args:any) :void`
-
-Sends general informational messages. Arguments are converted to strings and joined by a space.
-
-  - **Color:** Bright green (console).
-  - **Usage:** `await echo.log('One', 'two', 3, {a: 88})`
-
-#### `async warn(...args:any) :void`
-
-Sends warning messages. Arguments are converted to strings and joined by a space.
-
-  - **Color:** Yellow (console).
-  - **Usage:** `await echo.warn('Warning:', 'bad request', 404)`
-
-#### `async error(err:Error|string) :void`
-
-Sends an error. The error is converted to a JS object `{message, stack}` for event emission.
-
-  - **Color:** Bright red (console).
-  - **Usage:** `await echo.error(new Error('Scraper error'))`
-
-#### `async objekt(obj:object) :void`
-
-Sends a JavaScript object. The object is printed as a **prettified JSON string** to the console.
-
-  - **Color:** Bright blue (console).
-  - **Usage:** `await echo.objekt({a:'str', b:55})`
-
-#### `async image(img_b64:string) :void`
-
-Sends an image represented as a Base64 string.
-
-  - **Color:** Gray (console).
-  - **Usage:** `await echo.image('v1w4fnDx9N5fD4t2ft93Y/88IaZLbaPB8+3O1ef+/+jfXqzzf...')`
-
------
-
-### Interactive Method
-
-#### `async question(question:string) :Promise<any>`
-
-Sends a question to the console and event emitter, and then **pauses** execution, waiting for a response on the `eventEmitter`.
-
-  - **Mechanism:** Listens for the `'echo-answer'` event. The event listener must emit the event with the original question string as the first argument, and the answer as the second.
-  - **Timeout:** If no answer is received within `this.answerTimeout` milliseconds, the promise is rejected, and an error is logged.
-  - **Color:** Green (console).
-  - **Emission:** The emitted `echoMsg` will have `method: 'question'`.
-
-<!-- end list -->
+## ⚙️ Constructor
 
 ```javascript
-// Ask the question:
-const answer = await echo.question('Are you sure? (yes/no)');
-
-// External module must answer like this:
-eventEmitter.emit('echo-answer', 'Are you sure? (yes/no)', 'yes');
-```
-
------
-
-### 📄 License
-
-The software is licensed under [MIT](https://www.google.com/search?q=LICENSE).
+new Echo(short, delay, eventEmitter, answerTimeout, who)
 
 ```
+
+| Param | Type | Default | Description |
+| --- | --- | --- | --- |
+| **short** | boolean | true | Short console output |
+| **delay** | number | 100 | Delay between logs (ms) |
+| **eventEmitter** | EventEmitter | undefined | Emits echo-event |
+| **answerTimeout** | number | 30000 | Question timeout (ms) |
+| **who** | string | '' | Sender identifier |
+
+---
+
+## 🧾 Logging methods
+
+All methods are async.
+
+### log(...args)
+
+General info (green)
+
+```javascript
+await echo.log('Hello', 123, { a: 1 });
+
 ```
+
+### warn(...args)
+
+Warnings (yellow)
+
+```javascript
+await echo.warn('Deprecated API');
+
+```
+
+### error(err)
+
+Errors (red)
+
+```javascript
+await echo.error(new Error('Something failed'));
+
+```
+
+### objekt(obj)
+
+Pretty-printed objects (blue)
+
+```javascript
+await echo.objekt({ a: 1, b: 2 });
+
+```
+
+### image(base64)
+
+Base64 image passthrough (gray)
+
+```javascript
+await echo.image('iVBORw0KGgoAAAANSUhEUgAA...');
+
+```
+
+---
+
+## ❓ Interactive questions
+
+### question(question) : Promise<any>
+
+Pauses execution until answered via EventEmitter.
+
+```javascript
+const answer = await echo.question('Are you sure?');
+
+```
+
+Answer must be emitted like this:
+
+```javascript
+eventEmitter.emit('echo-answer', who, 'Are you sure?', 'yes');
+
+```
+
+If no answer arrives within `answerTimeout`, the promise rejects.
+
+
+## 📄 License
+MIT
+
+## Author
+[Mikosoft](https://www.mikosoft.info)

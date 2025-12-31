@@ -2,32 +2,37 @@ const { EventEmitter } = require('events');
 const Echo = require('../index.js');
 
 const eventEmitter = new EventEmitter();
-// eventEmitter.on('echo-event', echoMsg => console.log('EVT::', echoMsg));
 
-const echo = new Echo(true, 10, eventEmitter, 5000); // wait 5 seconds for answer
-// echo.short = false;
+const WHO = 'user1';
+const echo = new Echo(true, 10, eventEmitter, 5000, WHO); // wait 5 seconds for answer
 
 const question = 'Do you want to continue (yes/no)?';
 
-
+// function f1: ask question and process answer
 const f1 = async () => {
-  const answer = await echo.question(question).catch(err => { });
-  if (answer === 'yes') {
-    await echo.log('ANSWERED yes: Continuing operation...');
-  } else if (answer === 'no') {
-    await echo.log(' ANSWERED no: Aborting operation...');
+  try {
+    const answer = await echo.question(question);
+
+    if (answer === 'yes') {
+      await echo.log('ANSWERED yes: Continuing operation...');
+    } else if (answer === 'no') {
+      await echo.log('ANSWERED no: Aborting operation...');
+    }
+  } catch (err) {
+    await echo.warn(err.message);
   }
 };
 
 
+// function f2: send answers
 const f2 = async () => {
   // send answer
-  await new Promise(r => setTimeout(r, 3000)); // ----> increase to 6000 to test timeout <----
-  eventEmitter.emit('echo-answer', question, 'yes');
+  await new Promise(r => setTimeout(r, 3000));
+  eventEmitter.emit('echo-answer', WHO, question, 'yes');
 
-  // this shouldn't work as the question has already been answered
+  // this should NOT work (already answered)
   await new Promise(r => setTimeout(r, 3400));
-  eventEmitter.emit('echo-answer', question, 'no');
+  eventEmitter.emit('echo-answer', WHO, question, 'no');
 };
 
 
